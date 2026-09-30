@@ -2,9 +2,13 @@
 #
 # Pushing a tag `v<upstream version>-windowkit.<n>` builds the package the
 # way `npm publish` would and attaches the `npm pack` tarball to a GitHub
-# release of that tag. A dependent names the tarball's URL as its version:
+# release of that tag. An application names the tarball's URL as its version:
 #
 #   "fontkit": "https://github.com/windowkit/fontkit/releases/download/v2.0.4-windowkit.1/fontkit-2.0.4-windowkit.1.tgz"
+#
+# An application, with `allow-remote=root` in its .npmrc: npm 12 fetches no
+# URL dependency otherwise, and a published library cannot depend on one at
+# all. WINDOWKIT.md has the whole of it.
 #
 # A tarball rather than a `github:` spec, because a git dependency has no
 # `dist/`: npm builds one on every install (parcel and the rest of the
@@ -27,9 +31,9 @@ jobs:
   tarball:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # mocha 10's command line does not start on Node 26
           node-version: 20
