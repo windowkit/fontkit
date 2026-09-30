@@ -1,0 +1,72 @@
+# Releases of this fork are tarballs on GitHub, not versions on npm.
+#
+# Pushing a tag `v<upstream version>-windowkit.<n>` builds the package the
+# way `npm publish` would and attaches the `npm pack` tarball to a GitHub
+# release of that tag. A dependent names the tarball's URL as its version:
+#
+#   "fontkit": "https://github.com/windowkit/fontkit/releases/download/v2.0.4-windowkit.1/fontkit-2.0.4-windowkit.1.tgz"
+#
+# A tarball rather than a `github:` spec, because a git dependency has no
+# `dist/`: npm builds one on every install (parcel and the rest of the
+# devDependencies, every time), and Bun does not build it at all.
+#
+# The version is taken from the tag and written into the tarball only, so
+# package.json on master stays what upstream has and merges from it do not
+# conflict there. See WINDOWKIT.md.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*-windowkit.*'
+
+permissions:
+  contents: write
+
+jobs:
+  tarball:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # mocha 10's command line does not start on Node 26
+          node-version: 20
+
+      # `prepublish` runs here: the shaper tries are generated and dist/ built
+      - run: npm ci
+
+      - run: test -f dist/main.cjs -a -f dist/module.mjs
+
+      # The block left out reads `fontkit.defaultLanguage` back through the
+      # bundle's re-export, which the pinned parcel snapshots: its second
+      # test fails on upstream's master too, and the ones after it follow
+      # from that one having run.
+      - run: npx mocha --timeout 20000 --invert --grep 'fontkit.setDefaultLanguage'
+
+      - name: Pack
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          npm pack --ignore-scripts
+          test -f "fontkit-$version.tgz"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          upstream="v${VERSION%%-windowkit.*}"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/fontkit-$VERSION.tgz"
+          {
+            echo "fontkit ${upstream#v} with this fork's patches: https://github.com/$GITHUB_REPOSITORY/compare/$upstream...$GITHUB_REF_NAME"
+            echo
+            echo '```json'
+            echo "\"fontkit\": \"$url\""
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" "fontkit-$VERSION.tgz" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md
