@@ -13,10 +13,12 @@ is a tarball on GitHub, and an application names its URL:
 npm 12 fetches no dependency named by a URL, or by a git ref, unless told
 to: `allow-remote` and `allow-git` default to `none`. An application can
 say so for its own dependencies, with `allow-remote=root` in its `.npmrc`,
-and then the line above works, in `dependencies` or in `overrides`. A
-published library cannot: its dependency is a dependency of a dependency to
-whoever installs it, which only `allow-remote=all` lets through, and that
-is the installing application's to set.
+and then the line above works in its `dependencies`. As an `overrides`
+entry, replacing the fontkit a library depends on, it takes
+`allow-remote=all` (tried with npm 12.1.0: `root` refuses it). A published
+library cannot depend on the tarball at all: its dependency is a dependency
+of a dependency to whoever installs it, which only `all` lets through, and
+that is the installing application's to set.
 
 [ntk](https://github.com/sidorares/ntk) found this out. 8.17.2 depended on
 the tarball, its publish job failed in `npm ci` with `EALLOWREMOTE`, and
