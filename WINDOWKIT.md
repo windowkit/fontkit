@@ -16,7 +16,7 @@ dependent names its URL:
 | `getVariation()` for fonts in WOFF and WOFF2 containers (#1) | [foliojs/fontkit#389](https://github.com/foliojs/fontkit/pull/389) |
 | Decoded structs hold their hidden fields in private fields of a class, not `Object.defineProperties`: a face's first shaping takes a third less time (#4, `src/restructure.js`) | Not offered. The change belongs in [restructure](https://github.com/foliojs/restructure)'s `Struct#_setup` ([sidorares/ntk#437](https://github.com/sidorares/ntk/issues/437)) |
 | Builds for Chrome 91 rather than 70, so those private fields stay native instead of being compiled to WeakMaps (#4) | Fork only |
-| A WOFF2 is decompressed by the runtime's own Brotli in the builds for Node, which then do not load brotli.js and its 756 KB static dictionary; the browser builds keep brotli.js. Data that does not decompress to the size the directory gives is an error | Not offered yet |
+| A WOFF2 is decompressed by the runtime's own Brotli in the builds for Node, which then do not load brotli.js and its 756 KB static dictionary; the browser builds keep brotli.js, and `fontkit.setBrotliDecompressor` hands them a native one. Data that does not decompress to the size the directory gives is an error (#5, #6) | Not offered yet |
 
 When upstream releases a version with everything in this table, the fork
 has done its job: point the dependent back at `fontkit` on npm.
