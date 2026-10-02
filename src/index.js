@@ -16,4 +16,5 @@ registerFormat(DFont);
 // A WOFF2 is decompressed by brotli.js, a Brotli decoder in JavaScript
 setBrotliDecompressor(brotli);
 
+export { setBrotliDecompressor } from './WOFF2Font';
 export * from './base';

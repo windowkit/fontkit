@@ -57,6 +57,22 @@ Opens a font file synchronously, and returns a font object. For collection fonts
 
 Returns a font object for the given buffer. For collection fonts (such as TrueType collection files), you can pass a `postscriptName` to get that font out of the collection instead of a collection object.
 
+### `fontkit.setBrotliDecompressor(decompress)`
+
+Sets what decompresses the font data of a WOFF2, and returns the function it replaces. `decompress(buffer, size)` gets the compressed stream and the number of bytes the font's table directory says it holds, and returns them as a `Uint8Array`, or throws. Data that does not decompress to exactly `size` bytes is an error, as it is in browsers.
+
+The builds for Node use the runtime's own Brotli, `zlib.brotliDecompressSync`. The browser builds use [brotli.js](https://github.com/foliojs/brotli.js), a decoder in JavaScript, several times slower. A browser build that runs where there is a native Brotli, bundled into an application for Node for instance, can be handed it:
+
+```js
+import zlib from 'node:zlib';
+
+fontkit.setBrotliDecompressor((buffer, size) => {
+  let bytes = zlib.brotliDecompressSync(buffer, { maxOutputLength: Math.max(size, 1) });
+  // a plain Uint8Array: a Buffer's slice() is a view, not a copy
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
+});
+```
+
 ## Font objects
 
 There are several different types of font objects that are returned by fontkit depending on the font format. They all inherit from the `TTFFont` class and have the same public API, described below.

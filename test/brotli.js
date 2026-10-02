@@ -3,6 +3,7 @@ import * as browserBuild from '../dist/browser-module.mjs';
 import assert from 'assert';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
+import zlib from 'zlib';
 
 // Every WOFF2 in test/data
 const files = [
@@ -65,10 +66,63 @@ describe('WOFF2 decompression', function () {
     for (let build of [fontkit, browserBuild]) {
       let font = build.create(buffer);
       assert.throws(() => font.getGlyph(1).path, err => {
-        assert.equal(err.message, 'Error decoding compressed data in WOFF2');
+        assert.match(err.message, /^Error decoding compressed data in WOFF2: ./);
         assert.ok(err.cause, 'the decoder\'s own error rides along');
         return true;
       });
+    }
+  });
+
+  it('takes a decompressor from outside, in either build, and hands back the one it replaces', function () {
+    let buffer = fs.readFileSync(files[6]);
+    for (let build of [fontkit, browserBuild]) {
+      let calls = 0;
+      let previous = build.setBrotliDecompressor((data, size) => {
+        calls++;
+        return previous(data, size);
+      });
+      try {
+        build.create(buffer)._decompress();
+        assert.equal(calls, 1);
+      } finally {
+        assert.notEqual(build.setBrotliDecompressor(previous), previous);
+      }
+      build.create(buffer)._decompress();
+      assert.equal(calls, 1, 'and the default is back');
+
+      assert.throws(() => build.setBrotliDecompressor(null), TypeError);
+    }
+  });
+
+  it('gives a browser build handed the runtime\'s Brotli the tables brotli.js does', function () {
+    let native = (buffer, size) => {
+      let bytes = zlib.brotliDecompressSync(buffer, { maxOutputLength: Math.max(size, 1) });
+      return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
+    };
+    for (let file of files) {
+      let buffer = fs.readFileSync(file);
+      let js = Buffer.from(decompressed(browserBuild.create(buffer)));
+      let previous = browserBuild.setBrotliDecompressor(native);
+      try {
+        assert.ok(Buffer.from(decompressed(browserBuild.create(buffer))).equals(js), file.pathname);
+      } finally {
+        browserBuild.setBrotliDecompressor(previous);
+      }
+    }
+  });
+
+  it('throws on data of another size than the table directory gives', function () {
+    let buffer = fs.readFileSync(files[6]);
+    // short, long, and none at all: Deno's zlib answers a corrupt stream so
+    for (let length of [-1, +1, null]) {
+      let previous = fontkit.setBrotliDecompressor((data, size) => new Uint8Array(length === null ? 0 : size + length));
+      try {
+        assert.throws(() => fontkit.create(buffer)._decompress(), {
+          message: /^Error decoding compressed data in WOFF2: \d+ bytes, where the table directory gives \d+$/
+        });
+      } finally {
+        fontkit.setBrotliDecompressor(previous);
+      }
     }
   });
 });

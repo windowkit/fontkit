@@ -26,5 +26,6 @@ setBrotliDecompressor((buffer, size) => {
   return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
 });
 
+export { setBrotliDecompressor } from './WOFF2Font';
 export * from './base';
 export * from './fs';
