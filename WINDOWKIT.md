@@ -1,13 +1,32 @@
 # The windowkit fork of fontkit
 
-[fontkit](https://github.com/foliojs/fontkit) with the fixes
-[ntk](https://github.com/sidorares/ntk) needs before upstream has released
-them. It is not published to npm. A release is a tarball on GitHub, and a
-dependent names its URL:
+[fontkit](https://github.com/foliojs/fontkit) with fixes that are offered
+upstream and not released there yet. It is not published to npm. A release
+is a tarball on GitHub, and an application names its URL:
 
 ```json
 "fontkit": "https://github.com/windowkit/fontkit/releases/download/v2.0.4-windowkit.1/fontkit-2.0.4-windowkit.1.tgz"
 ```
+
+## Who can depend on it: an application, not a library
+
+npm 12 fetches no dependency named by a URL, or by a git ref, unless told
+to: `allow-remote` and `allow-git` default to `none`. An application can
+say so for its own dependencies, with `allow-remote=root` in its `.npmrc`,
+and then the line above works in its `dependencies`. As an `overrides`
+entry, replacing the fontkit a library depends on, it takes
+`allow-remote=all` (tried with npm 12.1.0: `root` refuses it). A published
+library cannot depend on the tarball at all: its dependency is a dependency
+of a dependency to whoever installs it, which only `all` lets through, and
+that is the installing application's to set.
+
+[ntk](https://github.com/sidorares/ntk) found this out. 8.17.2 depended on
+the tarball, its publish job failed in `npm ci` with `EALLOWREMOTE`, and
+the version never reached the registry. ntk depends on fontkit from npm
+again and does what it needed the fork for by itself
+(sidorares/ntk#485). So nothing depends on this fork today: it is where the
+upstream pull requests below come from, and a build to point an application
+at while they wait.
 
 ## What it carries
 
@@ -18,7 +37,7 @@ dependent names its URL:
 | Builds for Chrome 91 rather than 70, so those private fields stay native instead of being compiled to WeakMaps (#4) | Fork only |
 
 When upstream releases a version with everything in this table, the fork
-has done its job: point the dependent back at `fontkit` on npm.
+has done its job.
 
 ## Cutting a release
 
@@ -41,10 +60,10 @@ git merge upstream/master
 
 then a release as above, with upstream's version in the tag if it moved.
 
-## Why a tarball
+## Why a tarball and not a git dependency
 
 A `github:windowkit/fontkit#<sha>` dependency has no `dist/`, which is
 built, not committed. npm builds a git dependency on every install, parcel
-and all the devDependencies with it (18 s measured); Bun installs it
-unbuilt, and `import 'fontkit'` then fails. The tarball is what
-`npm publish` would have uploaded, and installs like any package.
+and all the devDependencies with it (18 s measured), where it fetches one
+at all (`allow-git`, above); Bun installs it unbuilt, and `import 'fontkit'`
+then fails. The tarball is what `npm publish` would have uploaded.
