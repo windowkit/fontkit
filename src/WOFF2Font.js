@@ -1,10 +1,19 @@
 import * as r from './restructure';
-import brotli from 'brotli/decompress.js';
 import TTFFont from './TTFFont';
 import TTFGlyph, { Point } from './glyph/TTFGlyph';
 import WOFF2Glyph from './glyph/WOFF2Glyph';
 import WOFF2Directory from './tables/WOFF2Directory';
 import { asciiDecoder } from './utils';
+
+// What decompresses a WOFF2's Brotli stream: `(buffer, size) => bytes`. The
+// entry point sets it, node.js to the runtime's own Brotli and index.js to
+// brotli.js, so a build for Node never loads brotli.js, whose static
+// dictionary is a 756 KB source file compiled at import.
+let decompressBrotli = null;
+
+export function setBrotliDecompressor(decompress) {
+  decompressBrotli = decompress;
+}
 
 /**
  * Subclass of TTFFont that represents a TTF/OTF font compressed by WOFF2
@@ -35,8 +44,17 @@ export default class WOFF2Font extends TTFFont {
         decompressedSize += (entry.transformLength != null) ? entry.transformLength : entry.length;
       }
 
-      let decompressed = brotli(buffer, decompressedSize);
-      if (!decompressed) {
+      let decompressed;
+      try {
+        decompressed = decompressBrotli(buffer, decompressedSize);
+      } catch (err) {
+        throw new Error('Error decoding compressed data in WOFF2', { cause: err });
+      }
+
+      // Exactly the size the directory gives, as Google's reference decoder
+      // requires: brotli.js hands back what it got, short, and Deno's zlib
+      // answers a corrupt stream with no bytes rather than an error.
+      if (!decompressed || decompressed.length !== decompressedSize) {
         throw new Error('Error decoding compressed data in WOFF2');
       }
 
