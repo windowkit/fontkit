@@ -1,4 +1,4 @@
-import * as r from 'restructure';
+import * as r from '../restructure';
 import { resolveLength } from 'restructure';
 import CFFDict from './CFFDict';
 import CFFIndex from './CFFIndex';
