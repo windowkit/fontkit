@@ -1,4 +1,4 @@
-import * as r from 'restructure';
+import * as r from '../restructure';
 
 // maxiumum profile
 export default new r.Struct({

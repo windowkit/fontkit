@@ -41,7 +41,7 @@
       "source": "src/node.js",
       "context": "browser",
       "engines": {
-        "browsers": "chrome >= 70"
+        "browsers": "chrome >= 91"
       }
     },
     "node-module": {
@@ -49,19 +49,19 @@
       "isLibrary": true,
       "includeNodeModules": false,
       "engines": {
-        "browsers": "chrome >= 70"
+        "browsers": "chrome >= 91"
       }
     },
     "module": {
       "source": "src/index.js",
       "engines": {
-        "browsers": "chrome >= 70"
+        "browsers": "chrome >= 91"
       }
     },
     "browser": {
       "source": "src/index.js",
       "engines": {
-        "browsers": "chrome >= 70"
+        "browsers": "chrome >= 91"
       }
     }
   },

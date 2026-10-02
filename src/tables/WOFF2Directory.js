@@ -1,4 +1,4 @@
-import * as r from 'restructure';
+import * as r from '../restructure';
 
 const Base128 = {
   decode(stream) {
