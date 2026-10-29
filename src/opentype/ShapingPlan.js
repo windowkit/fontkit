@@ -72,13 +72,22 @@ export default class ShapingPlan {
     }
   }
 
+  /**
+   * Applies the features the user asked for, or turned off.
+   * A feature the user asks for applies to every glyph, as HarfBuzz applies
+   * a feature asked for over the whole run: one the shaper planned for some
+   * glyphs only, like numr and dnom around a fraction slash, is made global,
+   * in the stage the shaper planned it in.
+   */
   setFeatureOverrides(features) {
     if (Array.isArray(features)) {
-      this.add(features);
+      for (let tag of features) {
+        this._addGlobal(tag);
+      }
     } else if (typeof features === 'object') {
       for (let tag in features) {
         if (features[tag]) {
-          this.add(tag);
+          this._addGlobal(tag);
         } else if (this.allFeatures[tag] != null) {
           let stage = this.stages[this.allFeatures[tag]];
           stage.splice(stage.indexOf(tag), 1);
@@ -87,6 +96,11 @@ export default class ShapingPlan {
         }
       }
     }
+  }
+
+  _addGlobal(tag) {
+    this.add(tag);
+    this.globalFeatures[tag] = true;
   }
 
   /**
