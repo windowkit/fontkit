@@ -46,13 +46,15 @@ export default class GlyphRun {
      */
     this.features = {};
 
-    // Convert features to an object
+    // Convert features to an object. A copy, since the shaper adds the
+    // features it chooses: written into the caller's object, they would be
+    // asked for by the user the next time the object was handed in.
     if (Array.isArray(features)) {
       for (let tag of features) {
         this.features[tag] = true;
       }
     } else if (typeof features === 'object') {
-      this.features = features;
+      Object.assign(this.features, features);
     }
   }
 

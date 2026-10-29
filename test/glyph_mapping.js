@@ -70,6 +70,27 @@ describe('character to glyph mapping', function () {
       let { glyphs } = font.layout('a⁄b ⁄ 1⁄ ⁄2');
       return assert.deepEqual(glyphs.map(g => g.id), [28, 1724, 29, 1, 1724, 1, 1617, 1724, 1, 1724, 1604]);
     });
+
+    // The glyphs HarfBuzz shapes, as `hb-shape --features=<tag>`
+    it('should apply a user feature the shaper plans for fractions to every glyph', function () {
+      let text = '123 1⁄16 123';
+      let ids = features => font.layout(text, features).glyphs.map(g => g.id);
+      let numerators = [1617, 1618, 1619, 1, 1617, 1724, 1603, 1608, 1, 1617, 1618, 1619];
+      assert.deepEqual(ids({ numr: true }), numerators);
+      assert.deepEqual(ids(['numr']), numerators);
+      assert.deepEqual(ids({ dnom: true }), [1603, 1604, 1605, 1, 1617, 1724, 1603, 1608, 1, 1603, 1604, 1605]);
+      assert.deepEqual(ids({ frac: true }), [1617, 1618, 1619, 1936, 1617, 1724, 1603, 1608, 1, 1617, 1618, 1619]);
+      assert.deepEqual(ids({ numr: false }), [1088, 1089, 1090, 1, 1617, 1724, 1603, 1608, 1, 1088, 1089, 1090]);
+    });
+
+    it('should not add the features it plans to the object it is handed', function () {
+      let features = { liga: true };
+      let first = font.layout('123 1⁄16', features);
+      assert.deepEqual(features, { liga: true });
+      assert(first.features.numr);
+      let second = font.layout('123 1⁄16', features);
+      assert.deepEqual(second.glyphs.map(g => g.id), first.glyphs.map(g => g.id));
+    });
   });
 
   describe('AAT features', function () {
