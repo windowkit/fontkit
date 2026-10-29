@@ -7,7 +7,7 @@
 #   "fontkit": "https://github.com/windowkit/fontkit/releases/download/v2.0.4-windowkit.1/fontkit-2.0.4-windowkit.1.tgz"
 #
 # A tarball rather than a `github:` spec, because a git dependency has no
-# `dist/`: npm builds one on every install (parcel and the rest of the
+# `dist/`: npm builds one on every install (the bundler and the rest of the
 # devDependencies, every time), and Bun does not build it at all.
 #
 # The version is taken from the tag and written into the tarball only, so
@@ -31,19 +31,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # mocha 10's command line does not start on Node 26
-          node-version: 20
+          # the oldest Node upstream's build targets
+          node-version: 22
 
       # `prepublish` runs here: the shaper tries are generated and dist/ built
       - run: npm ci
 
-      - run: test -f dist/main.cjs -a -f dist/module.mjs
+      # the two builds, and the browser build in one file for ntk to carry
+      - run: test -f dist/node/index.js -a -f dist/browser/index.js -a -f dist/browser-module.mjs
 
-      # The block left out reads `fontkit.defaultLanguage` back through the
-      # bundle's re-export, which the pinned parcel snapshots: its second
-      # test fails on upstream's master too, and the ones after it follow
-      # from that one having run.
-      - run: npx mocha --timeout 20000 --invert --grep 'fontkit.setDefaultLanguage'
+      - run: npx mocha --timeout 20000
 
       - name: Pack
         run: |

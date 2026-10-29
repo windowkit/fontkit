@@ -9,9 +9,9 @@
 // on its prototype, which takes a fifth to two fifths off a face's first
 // shaping, more for a face with more lookups (sidorares/ntk#437).
 //
-// They are only fast where the private fields are native: package.json's
-// targets are Chrome 91 rather than 70 for that, since below it the build
-// compiles them to WeakMaps.
+// They are only fast where the private fields are native, which they are in
+// every build rolldown.config.ts targets: below Chrome 74 a build compiles
+// them to WeakMaps.
 //
 // Everything that reads them reads the same: they stay out of Object.keys,
 // for...in, JSON.stringify and Object.assign, `struct.parent` reads, and a
@@ -26,17 +26,58 @@
 // checks.
 import * as r from 'restructure';
 
-// By name, not `export * from 'restructure'`: the parcel this builds with
-// drops a star re-export of an external package from a module it wraps, and
-// it wraps this one. test/restructure.js checks the list is all of them.
+// By name, since Struct and VersionedStruct are this module's own.
+// test/restructure.js checks the list is all of them.
 export {
-  Array, Bitfield, Boolean, Buffer, DecodeStream, EncodeStream, Enum, Fixed,
-  LazyArray, Number, Optional, Pointer, PropertyDescriptor, Reserved, String,
-  VoidPointer, double, doublebe, doublele, fixed16, fixed16be, fixed16le,
-  fixed32, fixed32be, fixed32le, float, floatbe, floatle, int16, int16be,
-  int16le, int24, int24be, int24le, int32, int32be, int32le, int8,
-  resolveLength, uint16, uint16be, uint16le, uint24, uint24be, uint24le,
-  uint32, uint32be, uint32le, uint8
+  Array,
+  Bitfield,
+  Boolean,
+  Buffer,
+  DecodeStream,
+  EncodeStream,
+  Enum,
+  Fixed,
+  LazyArray,
+  Number,
+  Optional,
+  Pointer,
+  PropertyDescriptor,
+  Reserved,
+  String,
+  VoidPointer,
+  double,
+  doublebe,
+  doublele,
+  fixed16,
+  fixed16be,
+  fixed16le,
+  fixed32,
+  fixed32be,
+  fixed32le,
+  float,
+  floatbe,
+  floatle,
+  int16,
+  int16be,
+  int16le,
+  int24,
+  int24be,
+  int24le,
+  int32,
+  int32be,
+  int32le,
+  int8,
+  resolveLength,
+  uint16,
+  uint16be,
+  uint16le,
+  uint24,
+  uint24be,
+  uint24le,
+  uint32,
+  uint32be,
+  uint32le,
+  uint8,
 } from 'restructure';
 
 export class DecodedStruct {
@@ -53,9 +94,9 @@ export class DecodedStruct {
   }
 
   // An object made with Object.create(DecodedStruct.prototype) has none of
-  // the fields, which is what a deep copy by the clone package is (subsets
-  // copy maxp, head and hhea that way). It reads them as undefined, as a
-  // copy of one of restructure's own structs does.
+  // the fields, which is what a deep copy that keeps prototypes makes. It
+  // reads them as undefined, as a copy of one of restructure's own structs
+  // does.
 
   get parent() {
     return #parent in this ? this.#parent : undefined;

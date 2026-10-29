@@ -10,7 +10,11 @@ export default class WOFF2Glyph extends TTFGlyph {
   _decode() {
     // We have to decode in advance (in WOFF2Font), so just return the pre-decoded data.
     let glyph = this._font._transformedGlyphs[this.id];
-    if (!glyph || !this._font._variationProcessor || glyph.numberOfContours === 0) {
+    if (
+      !glyph ||
+      !this._font._variationProcessor ||
+      glyph.numberOfContours === 0
+    ) {
       return glyph;
     }
 
@@ -18,9 +22,12 @@ export default class WOFF2Glyph extends TTFGlyph {
     // that of every other variation of it.
     let varied = Object.assign({}, glyph);
     if (glyph.numberOfContours > 0) {
-      varied.points = glyph.points.map(point => point.copy());
-    } else {
-      varied.components = glyph.components.map(component => Object.assign({}, component));
+      varied.points = glyph.points.map((point) => point.copy());
+    } else if (glyph.numberOfContours < 0) {
+      // composite glyph
+      varied.components = glyph.components.map((component) =>
+        Object.assign({}, component),
+      );
     }
 
     this._applyVariation(varied);
@@ -33,7 +40,9 @@ export default class WOFF2Glyph extends TTFGlyph {
     // decoding that is what is asking.
     if (internal && this._font._variationProcessor) {
       let glyph = this._font._transformedGlyphs[this.id];
-      return Object.freeze(new BBox(glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax));
+      return Object.freeze(
+        new BBox(glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax),
+      );
     }
 
     return this.path.bbox;

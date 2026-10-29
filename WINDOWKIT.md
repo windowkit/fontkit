@@ -13,14 +13,23 @@ dependent names its URL:
 
 | Patch | Upstream |
 | --- | --- |
-| `getVariation()` for fonts in WOFF and WOFF2 containers (#1) | [foliojs/fontkit#389](https://github.com/foliojs/fontkit/pull/389) |
-| Decoded structs hold their hidden fields in private fields of a class, not `Object.defineProperties`: a face's first shaping takes a third less time (#4, `src/restructure.js`) | Not offered. The change belongs in [restructure](https://github.com/foliojs/restructure)'s `Struct#_setup` ([sidorares/ntk#437](https://github.com/sidorares/ntk/issues/437)) |
-| Builds for Chrome 91 rather than 70, so those private fields stay native instead of being compiled to WeakMaps (#4) | Fork only |
-| A WOFF2 is decompressed by the runtime's own Brotli in the builds for Node, which then do not load brotli.js and its 756 KB static dictionary; the browser builds keep brotli.js, and `fontkit.setBrotliDecompressor` hands them a native one. Data that does not decompress to the size the directory gives is an error (#5, #6) | Not offered yet |
-| A feature the caller asks for applies to every glyph, as HarfBuzz applies one asked for over the whole run. The shapers plan `frac`, `numr` and `dnom` for the digits around a fraction slash alone, so `{ numr: 1 }` reached no glyph. And `layout()` no longer writes the features it planned into the object it is handed, which the next layout with the object would then apply to every glyph (#7, `src/opentype/ShapingPlan.js`, `src/layout/GlyphRun.js`) | Fixed on master, not released: [foliojs/fontkit#294](https://github.com/foliojs/fontkit/pull/294) makes the feature global, and [#371](https://github.com/foliojs/fontkit/pull/371) leaves the caller's object as it was. The fork's change is its own, and comes out the same on #294's test |
+| Decoded structs hold their hidden fields in private fields of a class, not `Object.defineProperties`: a face's first shaping takes a quarter less time (#4, `src/restructure.js`; on upstream's master of 2026-10-28, 23.3 ms against 17.5 for SourceSansPro, the median of fifteen fresh processes) | Not offered. The change belongs in [restructure](https://github.com/foliojs/restructure)'s `Struct#_setup` ([sidorares/ntk#437](https://github.com/sidorares/ntk/issues/437)) |
+| `fontkit.setBrotliDecompressor` hands a build what decompresses a WOFF2, so a browser build that runs where there is a native Brotli can use it. Data that does not decompress to the size the table directory gives is an error (#5, #6, `src/WOFF2Font.js`) | Not offered yet. The Node build's own native Brotli, which was the rest of #5, is upstream's now |
+| The browser build in one file as well, `dist/browser-module.mjs`, for a dependent that carries the build itself rather than installing it. ntk does (`rolldown.config.ts`) | Fork only |
 
-When upstream releases a version with everything in this table, the fork
-has done its job: point the dependent back at `fontkit` on npm.
+It also has, from upstream's master, what fontkit has not released since
+2.0.4. Three of those were the fork's patches until upstream took them:
+
+- variations of fonts in WOFF and WOFF2 containers, the fork's #1, as
+  [foliojs/fontkit#411](https://github.com/foliojs/fontkit/pull/411);
+- a feature the caller asks for applies to every glyph, the fork's #7, as
+  [foliojs/fontkit#294](https://github.com/foliojs/fontkit/pull/294), and
+  `layout()` leaves the features object it is handed as it was, as
+  [#371](https://github.com/foliojs/fontkit/pull/371);
+- the Node build decompresses with the runtime's zlib.
+
+When upstream releases a version with everything in the table, the fork has
+done its job: point the dependent back at `fontkit` on npm.
 
 ## Cutting a release
 
@@ -46,7 +55,7 @@ then a release as above, with upstream's version in the tag if it moved.
 ## Why a tarball
 
 A `github:windowkit/fontkit#<sha>` dependency has no `dist/`, which is
-built, not committed. npm builds a git dependency on every install, parcel
-and all the devDependencies with it (18 s measured); Bun installs it
-unbuilt, and `import 'fontkit'` then fails. The tarball is what
-`npm publish` would have uploaded, and installs like any package.
+built, not committed. npm builds a git dependency on every install, the
+bundler and all the devDependencies with it (18 s measured, with parcel);
+Bun installs it unbuilt, and `import 'fontkit'` then fails. The tarball is
+what `npm publish` would have uploaded, and installs like any package.

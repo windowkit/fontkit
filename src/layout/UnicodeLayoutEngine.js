@@ -1,4 +1,5 @@
-import {getCombiningClass} from 'unicode-properties';
+import { getCombiningClass } from 'unicode-properties';
+import BBox from '../glyph/BBox';
 
 /**
  * This class is used when GPOS does not define 'mark' or 'mkmk' features
@@ -13,43 +14,62 @@ export default class UnicodeLayoutEngine {
     this.font = font;
   }
 
-  positionGlyphs(glyphs, positions) {
+  /**
+   * Positions marks on the glyphs in logical order. With `direction` 'rtl',
+   * the offsets are for the glyphs once they're reversed, when marks are
+   * drawn before their base.
+   */
+  positionGlyphs(glyphs, positions, direction = 'ltr') {
     // find each base + mark cluster, and position the marks relative to the base
     let clusterStart = 0;
-    let clusterEnd = 0;
-    for (let index = 0; index < glyphs.length; index++) {
-      let glyph = glyphs[index];
-      if (glyph.isMark) { // TODO: handle ligatures
-        clusterEnd = index;
-      } else {
-        if (clusterStart !== clusterEnd) {
-          this.positionCluster(glyphs, positions, clusterStart, clusterEnd);
-        }
-
-        clusterStart = clusterEnd = index;
+    while (clusterStart < glyphs.length) {
+      let clusterEnd = clusterStart;
+      while (clusterEnd + 1 < glyphs.length && glyphs[clusterEnd + 1].isMark) {
+        clusterEnd++;
       }
-    }
 
-    if (clusterStart !== clusterEnd) {
-      this.positionCluster(glyphs, positions, clusterStart, clusterEnd);
+      // marks without a preceding base glyph are not positioned
+      if (clusterEnd > clusterStart && !glyphs[clusterStart].isMark) {
+        this.positionCluster(
+          glyphs,
+          positions,
+          clusterStart,
+          clusterEnd,
+          direction,
+        );
+      }
+
+      clusterStart = clusterEnd + 1;
     }
 
     return positions;
   }
 
-  positionCluster(glyphs, positions, clusterStart, clusterEnd) {
+  positionCluster(glyphs, positions, clusterStart, clusterEnd, direction) {
     let base = glyphs[clusterStart];
-    let baseBox = base.cbox.copy();
+    let { minY, maxY } = base.cbox;
+    // Like HarfBuzz, use the advance width for horizontal positioning, which
+    // also works for glyphs without ink.
+    let width = base.advanceWidth;
+    let baseBox = new BBox(0, minY, width, maxY);
 
-    // adjust bounding box for ligature glyphs
-    if (base.codePoints.length > 1) {
+    // adjust bounding box for ligature glyphs, positioning all marks over the
+    // last component
+    let components = base.codePoints.length;
+    if (components > 1) {
       // LTR. TODO: RTL support.
-      baseBox.minX += ((base.codePoints.length - 1) * baseBox.width) / base.codePoints.length;
+      baseBox.minX = Math.trunc(((components - 1) * width) / components);
+      baseBox.maxX = baseBox.minX + Math.trunc(width / components);
     }
 
-    let xOffset = -positions[clusterStart].xAdvance;
+    // Like HarfBuzz, offset the marks from the origin of the base, which is
+    // after the base in left-to-right text, and before it in right-to-left.
+    let forward = direction !== 'rtl';
+    let xOffset = forward ? -positions[clusterStart].xAdvance : 0;
     let yOffset = 0;
-    let yGap = this.font.unitsPerEm / 16;
+    let yGap = Math.trunc(this.font.unitsPerEm / 16);
+    let clusterBox = null;
+    let lastClass = null;
 
     // position each of the mark glyphs relative to the base glyph
     for (let index = clusterStart + 1; index <= clusterEnd; index++) {
@@ -60,6 +80,12 @@ export default class UnicodeLayoutEngine {
       let combiningClass = this.getCombiningClass(mark.codePoints[0]);
 
       if (combiningClass !== 'Not_Reordered') {
+        // stack marks of the same class, start from the base for a new class
+        if (combiningClass !== lastClass) {
+          clusterBox = baseBox.copy();
+          lastClass = combiningClass;
+        }
+
         position.xOffset = position.yOffset = 0;
 
         // x positioning
@@ -67,26 +93,30 @@ export default class UnicodeLayoutEngine {
           case 'Double_Above':
           case 'Double_Below':
             // LTR. TODO: RTL support.
-            position.xOffset += baseBox.minX - markBox.width / 2 - markBox.minX;
+            position.xOffset =
+              clusterBox.maxX - Math.trunc(markBox.width / 2) - markBox.minX;
             break;
 
           case 'Attached_Below_Left':
           case 'Below_Left':
           case 'Above_Left':
             // left align
-            position.xOffset += baseBox.minX - markBox.minX;
+            position.xOffset = clusterBox.minX - markBox.minX;
             break;
 
           case 'Attached_Above_Right':
           case 'Below_Right':
           case 'Above_Right':
             // right align
-            position.xOffset += baseBox.maxX - markBox.width - markBox.minX;
+            position.xOffset = clusterBox.maxX - markBox.maxX;
             break;
 
           default: // Attached_Below, Attached_Above, Below, Above, other
             // center align
-            position.xOffset += baseBox.minX + (baseBox.width - markBox.width) / 2 - markBox.minX;
+            position.xOffset =
+              clusterBox.minX +
+              Math.trunc((clusterBox.width - markBox.width) / 2) -
+              markBox.minX;
         }
 
         // y positioning
@@ -95,44 +125,51 @@ export default class UnicodeLayoutEngine {
           case 'Below_Left':
           case 'Below':
           case 'Below_Right':
+            // add a small gap between the glyphs if they are not attached
+            clusterBox.minY -= yGap;
+          // falls through
           case 'Attached_Below_Left':
           case 'Attached_Below':
-            // add a small gap between the glyphs if they are not attached
-            if (combiningClass === 'Attached_Below_Left' || combiningClass === 'Attached_Below') {
-              baseBox.minY += yGap;
+            position.yOffset = clusterBox.minY - markBox.maxY;
+            // never shift up "below" marks
+            if (position.yOffset > 0) {
+              clusterBox.minY -= position.yOffset;
+              position.yOffset = 0;
             }
-
-            position.yOffset = -baseBox.minY - markBox.maxY;
-            baseBox.minY += markBox.height;
+            clusterBox.minY -= markBox.height;
             break;
 
           case 'Double_Above':
           case 'Above_Left':
           case 'Above':
           case 'Above_Right':
+            // add a small gap between the glyphs if they are not attached
+            clusterBox.maxY += yGap;
+          // falls through
           case 'Attached_Above':
           case 'Attached_Above_Right':
-            // add a small gap between the glyphs if they are not attached
-            if (combiningClass === 'Attached_Above' || combiningClass === 'Attached_Above_Right') {
-              baseBox.maxY += yGap;
+            position.yOffset = clusterBox.maxY - markBox.minY;
+            // don't shift down "above" marks too much
+            if (position.yOffset < 0) {
+              let correction = -Math.trunc(position.yOffset / 2);
+              clusterBox.maxY += correction;
+              position.yOffset += correction;
             }
-
-            position.yOffset = baseBox.maxY - markBox.minY;
-            baseBox.maxY += markBox.height;
+            clusterBox.maxY += markBox.height;
             break;
         }
 
         position.xAdvance = position.yAdvance = 0;
         position.xOffset += xOffset;
         position.yOffset += yOffset;
-
-      } else {
+      } else if (forward) {
         xOffset -= position.xAdvance;
         yOffset -= position.yAdvance;
+      } else {
+        xOffset += position.xAdvance;
+        yOffset += position.yAdvance;
       }
     }
-
-    return;
   }
 
   getCombiningClass(codePoint) {
@@ -149,7 +186,7 @@ export default class UnicodeLayoutEngine {
           case 0x0e37:
           case 0x0e47:
           case 0x0e4c:
-          case 0x0e3d:
+          case 0x0e4d:
           case 0x0e4e:
             return 'Above_Right';
 
@@ -166,7 +203,8 @@ export default class UnicodeLayoutEngine {
           case 0x0ebc:
             return 'Below';
         }
-      } else if (codePoint === 0x0e3a) { // virama
+      } else if (codePoint === 0x0e3a) {
+        // virama
         return 'Below_Right';
       }
     }

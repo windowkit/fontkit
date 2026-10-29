@@ -46,15 +46,13 @@ export default class GlyphRun {
      */
     this.features = {};
 
-    // Convert features to an object. A copy, since the shaper adds the
-    // features it chooses: written into the caller's object, they would be
-    // asked for by the user the next time the object was handed in.
+    // Convert features to an object
     if (Array.isArray(features)) {
       for (let tag of features) {
         this.features[tag] = true;
       }
     } else if (typeof features === 'object') {
-      Object.assign(this.features, features);
+      this.features = features;
     }
   }
 
@@ -71,10 +69,10 @@ export default class GlyphRun {
     return width;
   }
 
- /**
-  * The total advance height of the run.
-  * @type {number}
-  */
+  /**
+   * The total advance height of the run.
+   * @type {number}
+   */
   get advanceHeight() {
     let height = 0;
     for (let position of this.positions) {
@@ -84,12 +82,12 @@ export default class GlyphRun {
     return height;
   }
 
- /**
-  * The bounding box containing all glyphs in the run.
-  * @type {BBox}
-  */
+  /**
+   * The bounding box containing all glyphs in the run.
+   * @type {BBox}
+   */
   get bbox() {
-    let bbox = new BBox;
+    let bbox = new BBox();
 
     let x = 0;
     let y = 0;

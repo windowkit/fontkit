@@ -4,7 +4,13 @@
 //
 import codepoints from 'codepoints';
 import fs from 'fs';
-import UnicodeTrieBuilder from 'unicode-trie/builder.js';
+import { UnicodeTrieBuilder } from 'unicode-trie/builder.js';
+
+const generatedDir = new URL(
+  '../src/opentype/shapers/generated/',
+  import.meta.url,
+);
+fs.mkdirSync(generatedDir, { recursive: true });
 
 let ShapingClasses = {
   Non_Joining: 0,
@@ -14,20 +20,27 @@ let ShapingClasses = {
   Join_Causing: 3,
   ALAPH: 4,
   'DALATH RISH': 5,
-  Transparent: 6
+  Transparent: 6,
 };
 
-let trie = new UnicodeTrieBuilder;
+let trie = new UnicodeTrieBuilder();
 for (let i = 0; i < codepoints.length; i++) {
   let codepoint = codepoints[i];
   if (codepoint) {
-    if (codepoint.joiningGroup === 'ALAPH' || codepoint.joiningGroup === 'DALATH RISH') {
+    if (
+      codepoint.joiningGroup === 'ALAPH' ||
+      codepoint.joiningGroup === 'DALATH RISH'
+    ) {
       trie.set(codepoint.code, ShapingClasses[codepoint.joiningGroup] + 1);
-
     } else if (codepoint.joiningType) {
       trie.set(codepoint.code, ShapingClasses[codepoint.joiningType] + 1);
     }
   }
 }
 
-fs.writeFileSync(new URL('data.trie', import.meta.url), trie.toBuffer());
+const dataTrieBuffer = trie.toBuffer();
+fs.writeFileSync(new URL('data.trie', generatedDir), dataTrieBuffer);
+fs.writeFileSync(
+  new URL('data.trie.base64.js', generatedDir),
+  `export default "${dataTrieBuffer.toString('base64')}"`,
+);

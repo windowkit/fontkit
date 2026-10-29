@@ -1,10 +1,16 @@
 import DefaultShaper from './DefaultShaper';
-import {getCategory} from 'unicode-properties';
-import UnicodeTrie from 'unicode-trie';
+import { getCategory } from 'unicode-properties';
+import { UnicodeTrie } from 'unicode-trie';
+import dataTrieBase64 from './generated/data.trie.base64.js';
 import { decodeBase64 } from '../../utils';
 
-const trie = new UnicodeTrie(decodeBase64(require('fs').readFileSync(__dirname + '/data.trie', 'base64')));
+const trie = new UnicodeTrie(decodeBase64(dataTrieBase64));
 const FEATURES = ['isol', 'fina', 'fin2', 'fin3', 'medi', 'med2', 'init'];
+
+const MODIFIER_COMBINING_MARKS = new Set([
+  0x0654, 0x0655, 0x0658, 0x06dc, 0x06e3, 0x06e7, 0x06e8, 0x08ca, 0x08cb,
+  0x08cd, 0x08ce, 0x08cf, 0x08d3, 0x08f3,
+]);
 
 const ShapingClasses = {
   Non_Joining: 0,
@@ -14,7 +20,7 @@ const ShapingClasses = {
   Join_Causing: 3,
   ALAPH: 4,
   'DALATH RISH': 5,
-  Transparent: 6
+  Transparent: 6,
 };
 
 const ISOL = 'isol';
@@ -30,31 +36,80 @@ const NONE = null;
 const STATE_TABLE = [
   //   Non_Joining,        Left_Joining,       Right_Joining,     Dual_Joining,           ALAPH,            DALATH RISH
   // State 0: prev was U,  not willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ NONE, ISOL, 1 ],  [ NONE, ISOL, 2 ],  [ NONE, ISOL, 1 ],  [ NONE, ISOL, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [NONE, ISOL, 1],
+    [NONE, ISOL, 2],
+    [NONE, ISOL, 1],
+    [NONE, ISOL, 6],
+  ],
 
   // State 1: prev was R or ISOL/ALAPH,  not willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ NONE, ISOL, 1 ],  [ NONE, ISOL, 2 ],  [ NONE, FIN2, 5 ],  [ NONE, ISOL, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [NONE, ISOL, 1],
+    [NONE, ISOL, 2],
+    [NONE, FIN2, 5],
+    [NONE, ISOL, 6],
+  ],
 
   // State 2: prev was D/L in ISOL form,  willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ INIT, FINA, 1 ],  [ INIT, FINA, 3 ],  [ INIT, FINA, 4 ],  [ INIT, FINA, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [INIT, FINA, 1],
+    [INIT, FINA, 3],
+    [INIT, FINA, 4],
+    [INIT, FINA, 6],
+  ],
 
   // State 3: prev was D in FINA form,  willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ MEDI, FINA, 1 ],  [ MEDI, FINA, 3 ],  [ MEDI, FINA, 4 ],  [ MEDI, FINA, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [MEDI, FINA, 1],
+    [MEDI, FINA, 3],
+    [MEDI, FINA, 4],
+    [MEDI, FINA, 6],
+  ],
 
   // State 4: prev was FINA ALAPH,  not willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ MED2, ISOL, 1 ],  [ MED2, ISOL, 2 ],  [ MED2, FIN2, 5 ],  [ MED2, ISOL, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [MED2, ISOL, 1],
+    [MED2, ISOL, 2],
+    [MED2, FIN2, 5],
+    [MED2, ISOL, 6],
+  ],
 
   // State 5: prev was FIN2/FIN3 ALAPH,  not willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ ISOL, ISOL, 1 ],  [ ISOL, ISOL, 2 ],  [ ISOL, FIN2, 5 ],  [ ISOL, ISOL, 6 ] ],
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [ISOL, ISOL, 1],
+    [ISOL, ISOL, 2],
+    [ISOL, FIN2, 5],
+    [ISOL, ISOL, 6],
+  ],
 
   // State 6: prev was DALATH/RISH,  not willing to join.
-  [ [ NONE, NONE, 0 ],  [ NONE, ISOL, 2 ],  [ NONE, ISOL, 1 ],  [ NONE, ISOL, 2 ],  [ NONE, FIN3, 5 ],  [ NONE, ISOL, 6 ] ]
+  [
+    [NONE, NONE, 0],
+    [NONE, ISOL, 2],
+    [NONE, ISOL, 1],
+    [NONE, ISOL, 2],
+    [NONE, FIN3, 5],
+    [NONE, ISOL, 6],
+  ],
 ];
 
 /**
  * This is a shaper for Arabic, and other cursive scripts.
  * It uses data from ArabicShaping.txt in the Unicode database,
- * compiled to a UnicodeTrie by generate-data.coffee.
+ * compiled to a UnicodeTrie by scripts/generate-data.js.
  *
  * The shaping state machine was ported from Harfbuzz.
  * https://github.com/behdad/harfbuzz/blob/master/src/hb-ot-shape-complex-arabic.cc
@@ -68,6 +123,35 @@ export default class ArabicShaper extends DefaultShaper {
     }
 
     plan.addStage('mset');
+  }
+
+  // Move modifier combining marks (hamza above or below, small high letters)
+  // to the start of their mark run, as UTR #53 recommends. Like HarfBuzz, give
+  // them a class below all Arabic marks so the run stays sorted.
+  // @override
+  static reorderMarks(characters, start, end) {
+    let i = start;
+    for (let combiningClass of [220, 230]) {
+      while (i < end && characters[i].combiningClass < combiningClass) i++;
+      if (i === end) break;
+      if (characters[i].combiningClass === combiningClass) {
+        let j = i;
+        while (
+          j < end &&
+          characters[j].combiningClass === combiningClass &&
+          MODIFIER_COMBINING_MARKS.has(characters[j].codePoint)
+        ) {
+          j++;
+        }
+        let marks = characters.splice(i, j - i);
+        for (let mark of marks) {
+          mark.combiningClass = combiningClass === 220 ? 22 : 26;
+        }
+        characters.splice(start, 0, ...marks);
+        start += marks.length;
+        i = j;
+      }
+    }
   }
 
   static assignFeatures(plan, glyphs) {
@@ -101,7 +185,7 @@ export default class ArabicShaper extends DefaultShaper {
     for (let index = 0; index < glyphs.length; index++) {
       let feature;
       var glyph = glyphs[index];
-      if (feature = actions[index]) {
+      if ((feature = actions[index])) {
         glyph.features[feature] = true;
       }
     }
