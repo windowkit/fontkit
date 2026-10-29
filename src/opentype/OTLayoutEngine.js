@@ -25,37 +25,60 @@ export default class OTLayoutEngine {
   setup(glyphRun) {
     // Map glyphs to GlyphInfo objects so data can be passed between
     // GSUB and GPOS without mutating the real (shared) Glyph objects.
-    this.glyphInfos = glyphRun.glyphs.map(glyph => new GlyphInfo(this.font, glyph.id, [...glyph.codePoints]));
+    this.glyphInfos = glyphRun.glyphs.map(
+      (glyph) => new GlyphInfo(this.font, glyph.id, [...glyph.codePoints]),
+    );
 
     // Select a script based on what is available in GSUB/GPOS.
     let script = null;
     if (this.GPOSProcessor) {
-      script = this.GPOSProcessor.selectScript(glyphRun.script, glyphRun.language, glyphRun.direction);
+      script = this.GPOSProcessor.selectScript(
+        glyphRun.script,
+        glyphRun.language,
+        glyphRun.direction,
+      );
     }
 
     if (this.GSUBProcessor) {
-      script = this.GSUBProcessor.selectScript(glyphRun.script, glyphRun.language, glyphRun.direction);
+      script = this.GSUBProcessor.selectScript(
+        glyphRun.script,
+        glyphRun.language,
+        glyphRun.direction,
+      );
     }
 
     // Choose a shaper based on the script, and setup a shaping plan.
-    // This determines which features to apply to which glyphs.
-    this.shaper = Shapers.choose(script);
-    this.plan = new ShapingPlan(this.font, script, glyphRun.direction);
+    // This determines which features to apply to which glyphs. Fall back
+    // to the buffer's Unicode script when neither GSUB nor GPOS picked an
+    // OT script — script-specific shaping (e.g. Thai SARA AM decomp, the
+    // PUA fallback for fonts without Thai GSUB) still applies.
+    let shaperScript = script || glyphRun.script;
+    this.shaper = Shapers.choose(shaperScript);
+    this.plan = new ShapingPlan(this.font, shaperScript, glyphRun.direction);
     this.shaper.plan(this.plan, this.glyphInfos, glyphRun.features);
 
-    // Assign chosen features to output glyph run
-    for (let key in this.plan.allFeatures) {
-      glyphRun.features[key] = true;
-    }
+    // Build the output features object: every shaper-chosen feature marked
+    // `true`, then overlay the user's original values so alternateNumber
+    // selections (e.g. `nalt: 2` for Type 3 lookups) survive instead of being
+    // clobbered to `true`. The caller's input object is left untouched.
+    glyphRun.features = {
+      ...Object.fromEntries(
+        Object.keys(this.plan.allFeatures).map((k) => [k, true]),
+      ),
+      ...glyphRun.features,
+    };
   }
 
   substitute(glyphRun) {
     if (this.GSUBProcessor) {
       this.plan.process(this.GSUBProcessor, this.glyphInfos);
-
-      // Map glyph infos back to normal Glyph objects
-      glyphRun.glyphs = this.glyphInfos.map(glyphInfo => this.font.getGlyph(glyphInfo.id, glyphInfo.codePoints));
     }
+
+    // Shaper normalization can change glyphs even without a GSUB table.
+    // Keep the output glyphs and the positions allocated from them in sync.
+    glyphRun.glyphs = this.glyphInfos.map((glyphInfo) =>
+      this.font.getGlyph(glyphInfo.id, glyphInfo.codePoints),
+    );
   }
 
   position(glyphRun) {
@@ -64,11 +87,21 @@ export default class OTLayoutEngine {
     }
 
     if (this.GPOSProcessor) {
-      this.plan.process(this.GPOSProcessor, this.glyphInfos, glyphRun.positions);
+      this.plan.process(
+        this.GPOSProcessor,
+        this.glyphInfos,
+        glyphRun.positions,
+      );
     }
 
     if (this.shaper.zeroMarkWidths === 'AFTER_GPOS') {
       this.zeroMarkAdvances(glyphRun.positions);
+    }
+
+    // Like HarfBuzz, resolve attachments once all advances are final, so they
+    // don't count the advances of marks zeroed after GPOS:
+    if (this.GPOSProcessor) {
+      this.GPOSProcessor.fixAttachments(this.glyphInfos, glyphRun.positions);
     }
 
     // Reverse the glyphs and positions if the script is right-to-left

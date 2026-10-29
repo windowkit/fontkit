@@ -4,10 +4,11 @@ export default class GlyphIterator {
     this.reset(options);
   }
 
-  reset(options = {}, index = 0) {
+  reset(options = {}, index = 0, markFilteringSet = null) {
     this.options = options;
     this.flags = options.flags || {};
     this.markAttachmentType = options.markAttachmentType || 0;
+    this.markFilteringSet = markFilteringSet;
     this.index = index;
   }
 
@@ -16,15 +17,29 @@ export default class GlyphIterator {
   }
 
   shouldIgnore(glyph) {
-    return (this.flags.ignoreMarks && glyph.isMark) ||
-           (this.flags.ignoreBaseGlyphs && glyph.isBase) ||
-           (this.flags.ignoreLigatures && glyph.isLigature) ||
-           (this.markAttachmentType && glyph.isMark && glyph.markAttachmentType !== this.markAttachmentType);
+    // useMarkFilteringSet (lookup flag 0x10) overrides ignoreMarks and
+    // markAttachmentType for marks: a mark is considered only if it is in
+    // the filtering set, otherwise it is skipped.
+    if (this.flags.useMarkFilteringSet && glyph.isMark) {
+      return !this.markFilteringSet?.has(glyph.id);
+    }
+    return (
+      (this.flags.ignoreMarks && glyph.isMark) ||
+      (this.flags.ignoreBaseGlyphs && glyph.isBase) ||
+      (this.flags.ignoreLigatures && glyph.isLigature) ||
+      (this.markAttachmentType &&
+        glyph.isMark &&
+        glyph.markAttachmentType !== this.markAttachmentType)
+    );
   }
 
   move(dir) {
     this.index += dir;
-    while (0 <= this.index && this.index < this.glyphs.length && this.shouldIgnore(this.glyphs[this.index])) {
+    while (
+      0 <= this.index &&
+      this.index < this.glyphs.length &&
+      this.shouldIgnore(this.glyphs[this.index])
+    ) {
       this.index += dir;
     }
 

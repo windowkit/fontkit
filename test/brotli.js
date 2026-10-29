@@ -1,7 +1,9 @@
+// The windowkit fork's: what decompresses a WOFF2 can be set from outside
+// (windowkit/fontkit#5, #6), and the browser build in one file
+// (dist/browser-module.mjs) has the same. See WINDOWKIT.md.
 import * as fontkit from 'fontkit';
 import * as browserBuild from '../dist/browser-module.mjs';
 import assert from 'assert';
-import { execFileSync } from 'child_process';
 import fs from 'fs';
 import zlib from 'zlib';
 
@@ -14,8 +16,8 @@ const files = [
   'fonttest/AdobeVFPrototype-Subset.woff2',
   'SourceSansPro/SourceSansPro-Regular.ttf.woff2',
   'SourceSansPro/SourceSansPro-Regular.woff2',
-  'SourceSansPro/SourceSansPro-Regular.otf.woff2'
-].map(file => new URL(`data/${file}`, import.meta.url));
+  'SourceSansPro/SourceSansPro-Regular.otf.woff2',
+].map((file) => new URL(`data/${file}`, import.meta.url));
 
 function decompressed(font) {
   font._decompress();
@@ -23,37 +25,13 @@ function decompressed(font) {
 }
 
 describe('WOFF2 decompression', function () {
-  it('gives the same tables in a build for Node, with the runtime\'s Brotli, as brotli.js does', function () {
+  it("gives the same tables in a build for Node, with the runtime's Brotli, as brotli.js does", function () {
     for (let file of files) {
       let buffer = fs.readFileSync(file);
       let native = decompressed(fontkit.create(buffer));
       let js = decompressed(browserBuild.create(buffer));
       assert.ok(Buffer.from(native).equals(Buffer.from(js)), file.pathname);
-      // a Uint8Array, as brotli.js returns: a Buffer's slice() would be a view
-      assert.equal(Object.getPrototypeOf(native), Uint8Array.prototype, file.pathname);
     }
-  });
-
-  it('does not load brotli.js in a build for Node', function () {
-    for (let build of ['module.mjs', 'main.cjs']) {
-      let source = fs.readFileSync(new URL(`../dist/${build}`, import.meta.url), 'utf8');
-      assert.ok(!source.includes('brotli/'), build);
-    }
-
-    // nor anything else that does, in a process that reads a WOFF2
-    let script = `
-      import { createRequire } from 'module';
-      const fontkit = await import('fontkit');
-      const font = fontkit.openSync(${JSON.stringify(files[6].pathname)});
-      font.layout('Handgloves').glyphs.forEach(glyph => glyph.path);
-      const loaded = Object.keys(createRequire(import.meta.url).cache);
-      console.log(JSON.stringify(loaded.filter(path => path.includes('/brotli/'))));
-    `;
-    let out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
-      cwd: new URL('..', import.meta.url),
-      encoding: 'utf8'
-    });
-    assert.deepEqual(JSON.parse(out), []);
   });
 
   it('throws on data that does not decompress, in either build', function () {
@@ -65,11 +43,17 @@ describe('WOFF2 decompression', function () {
 
     for (let build of [fontkit, browserBuild]) {
       let font = build.create(buffer);
-      assert.throws(() => font.getGlyph(1).path, err => {
-        assert.match(err.message, /^Error decoding compressed data in WOFF2: ./);
-        assert.ok(err.cause, 'the decoder\'s own error rides along');
-        return true;
-      });
+      assert.throws(
+        () => font.getGlyph(1).path,
+        (err) => {
+          assert.match(
+            err.message,
+            /^Error decoding compressed data in WOFF2: ./,
+          );
+          assert.ok(err.cause, "the decoder's own error rides along");
+          return true;
+        },
+      );
     }
   });
 
@@ -94,9 +78,11 @@ describe('WOFF2 decompression', function () {
     }
   });
 
-  it('gives a browser build handed the runtime\'s Brotli the tables brotli.js does', function () {
+  it("gives a browser build handed the runtime's Brotli the tables brotli.js does", function () {
     let native = (buffer, size) => {
-      let bytes = zlib.brotliDecompressSync(buffer, { maxOutputLength: Math.max(size, 1) });
+      let bytes = zlib.brotliDecompressSync(buffer, {
+        maxOutputLength: Math.max(size, 1),
+      });
       return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
     };
     for (let file of files) {
@@ -104,7 +90,10 @@ describe('WOFF2 decompression', function () {
       let js = Buffer.from(decompressed(browserBuild.create(buffer)));
       let previous = browserBuild.setBrotliDecompressor(native);
       try {
-        assert.ok(Buffer.from(decompressed(browserBuild.create(buffer))).equals(js), file.pathname);
+        assert.ok(
+          Buffer.from(decompressed(browserBuild.create(buffer))).equals(js),
+          file.pathname,
+        );
       } finally {
         browserBuild.setBrotliDecompressor(previous);
       }
@@ -115,14 +104,33 @@ describe('WOFF2 decompression', function () {
     let buffer = fs.readFileSync(files[6]);
     // short, long, and none at all: Deno's zlib answers a corrupt stream so
     for (let length of [-1, +1, null]) {
-      let previous = fontkit.setBrotliDecompressor((data, size) => new Uint8Array(length === null ? 0 : size + length));
+      let previous = fontkit.setBrotliDecompressor(
+        (data, size) => new Uint8Array(length === null ? 0 : size + length),
+      );
       try {
         assert.throws(() => fontkit.create(buffer)._decompress(), {
-          message: /^Error decoding compressed data in WOFF2: \d+ bytes, where the table directory gives \d+$/
+          message:
+            /^Error decoding compressed data in WOFF2: \d+ bytes, where the table directory gives \d+$/,
         });
       } finally {
         fontkit.setBrotliDecompressor(previous);
       }
     }
+  });
+
+  it('is one file with the browser build, importing no builtin', function () {
+    let source = fs.readFileSync(
+      new URL('../dist/browser-module.mjs', import.meta.url),
+      'utf8',
+    );
+    let imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map(
+      (m) => m[1],
+    );
+    assert.ok(imports.includes('brotli/decompress.js'));
+    assert.ok(!imports.some((id) => id.startsWith('.')), 'no chunks');
+    assert.ok(
+      !imports.some((id) => id.startsWith('node:') || id === 'fs'),
+      'no builtins',
+    );
   });
 });

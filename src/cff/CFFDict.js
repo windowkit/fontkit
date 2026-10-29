@@ -1,21 +1,42 @@
-import isEqual from 'fast-deep-equal';
-import * as r from 'restructure';
 import CFFOperand from './CFFOperand';
 import { PropertyDescriptor } from 'restructure';
+
+// CFF defaults are primitives or flat arrays of numbers and strings.
+function equalsDefault(value, defaultValue) {
+  if (value === defaultValue) return true;
+
+  if (
+    !Array.isArray(value) ||
+    !Array.isArray(defaultValue) ||
+    value.length !== defaultValue.length
+  ) {
+    return false;
+  }
+
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] !== defaultValue[i]) return false;
+  }
+
+  return true;
+}
 
 export default class CFFDict {
   constructor(ops = []) {
     this.ops = ops;
     this.fields = {};
     for (let field of ops) {
-      let key = Array.isArray(field[0]) ? field[0][0] << 8 | field[0][1] : field[0];
+      let key = Array.isArray(field[0])
+        ? (field[0][0] << 8) | field[0][1]
+        : field[0];
       this.fields[key] = field;
     }
   }
 
   decodeOperands(type, stream, ret, operands) {
     if (Array.isArray(type)) {
-      return operands.map((op, i) => this.decodeOperands(type[i], stream, ret, [op]));
+      return operands.map((op, i) =>
+        this.decodeOperands(type[i], stream, ret, [op]),
+      );
     } else if (type.decode != null) {
       return type.decode(stream, ret, operands);
     } else {
@@ -34,7 +55,9 @@ export default class CFFDict {
 
   encodeOperands(type, stream, ctx, operands) {
     if (Array.isArray(type)) {
-      return operands.map((op, i) => this.encodeOperands(type[i], stream, ctx, op)[0]);
+      return operands.map(
+        (op, i) => this.encodeOperands(type[i], stream, ctx, op)[0],
+      );
     } else if (type.encode != null) {
       return type.encode(stream, operands, ctx);
     } else if (typeof operands === 'number') {
@@ -55,8 +78,8 @@ export default class CFFDict {
 
     // define hidden properties
     Object.defineProperties(ret, {
-      parent:         { value: parent },
-      _startOffset:   { value: stream.pos }
+      parent: { value: parent },
+      _startOffset: { value: stream.pos },
     });
 
     // fill in defaults
@@ -100,7 +123,7 @@ export default class CFFDict {
       parent,
       val: dict,
       pointerSize: 0,
-      startOffset: parent.startOffset || 0
+      startOffset: parent.startOffset || 0,
     };
 
     let len = 0;
@@ -108,7 +131,7 @@ export default class CFFDict {
     for (let k in this.fields) {
       let field = this.fields[k];
       let val = dict[field[1]];
-      if (val == null || isEqual(val, field[3])) {
+      if (val == null || equalsDefault(val, field[3])) {
         continue;
       }
 
@@ -134,14 +157,14 @@ export default class CFFDict {
       startOffset: stream.pos,
       parent,
       val: dict,
-      pointerSize: 0
+      pointerSize: 0,
     };
 
     ctx.pointerOffset = stream.pos + this.size(dict, ctx, false);
 
     for (let field of this.ops) {
       let val = dict[field[1]];
-      if (val == null || isEqual(val, field[3])) {
+      if (val == null || equalsDefault(val, field[3])) {
         continue;
       }
 

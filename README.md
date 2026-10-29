@@ -43,6 +43,26 @@ run.glyphs.forEach(function(glyph) {
 let buffer = subset.encode();
 ```
 
+## Choosing font formats
+
+Importing `fontkit` registers all built-in formats, as before. To register only the formats you need, import the base API from `fontkit/core` and register format classes explicitly:
+
+```javascript
+import * as fontkit from 'fontkit/core';
+import { TTFFont } from 'fontkit/formats/TTFFont';
+
+fontkit.registerFormat(TTFFont);
+const font = fontkit.create(buffer);
+```
+
+The available format modules are `fontkit/formats/TTFFont` (TrueType and OpenType), `fontkit/formats/WOFFFont`, `fontkit/formats/WOFF2Font`, `fontkit/formats/TrueTypeCollection`, and `fontkit/formats/DFont`. Each module exports its class as a named export and does not register any formats.
+
+Additional exports in generated format modules are internal implementation details and are not part of the public API.
+
+`fontkit/core` provides `create`, `registerFormat`, `defaultLanguage`, `setDefaultLanguage`, and `logErrors`, without registering formats or including filesystem helpers. Within each platform, the core and default entries share the same format registry and language settings; importing `fontkit` also registers all built-in formats for users of `fontkit/core`.
+
+The same import paths select separate Node and browser builds. Node uses native zlib decompression, while browsers use `fflate` and `brotli`. The two builds have independent format registries and language settings.
+
 ## API
 
 ### `fontkit.open(filename, postscriptName = null)`
@@ -59,15 +79,17 @@ Returns a font object for the given buffer. For collection fonts (such as TrueTy
 
 ### `fontkit.setBrotliDecompressor(decompress)`
 
-Sets what decompresses the font data of a WOFF2, and returns the function it replaces. `decompress(buffer, size)` gets the compressed stream and the number of bytes the font's table directory says it holds, and returns them as a `Uint8Array`, or throws. Data that does not decompress to exactly `size` bytes is an error, as it is in browsers.
+In the windowkit fork only. Sets what decompresses the font data of a WOFF2, and returns the function it replaces. `decompress(buffer, size)` gets the compressed stream and the number of bytes the font's table directory says it holds, and returns them as a `Uint8Array`, or throws. Data that does not decompress to exactly `size` bytes is an error, as it is in browsers.
 
-The builds for Node use the runtime's own Brotli, `zlib.brotliDecompressSync`. The browser builds use [brotli.js](https://github.com/foliojs/brotli.js), a decoder in JavaScript, several times slower. A browser build that runs where there is a native Brotli, bundled into an application for Node for instance, can be handed it:
+The Node build uses the runtime's own Brotli, `zlib.brotliDecompressSync`. The browser build uses [brotli.js](https://github.com/foliojs/brotli.js), a decoder in JavaScript, several times slower. A browser build that runs where there is a native Brotli, bundled into an application for Node for instance, can be handed it:
 
 ```js
 import zlib from 'node:zlib';
 
 fontkit.setBrotliDecompressor((buffer, size) => {
-  let bytes = zlib.brotliDecompressSync(buffer, { maxOutputLength: Math.max(size, 1) });
+  let bytes = zlib.brotliDecompressSync(buffer, {
+    maxOutputLength: Math.max(size, 1),
+  });
   // a plain Uint8Array: a Buffer's slice() is a view, not a copy
   return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
 });

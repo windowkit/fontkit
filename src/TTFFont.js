@@ -1,6 +1,6 @@
-import * as r from 'restructure';
-import { cache } from './decorators';
-import * as fontkit from './base';
+import * as r from './restructure';
+import { cache } from './cache';
+import { logErrors, defaultLanguage } from './core';
 import Directory from './tables/directory';
 import tables from './tables';
 import CmapProcessor from './CmapProcessor';
@@ -15,16 +15,31 @@ import CFFSubset from './subset/CFFSubset';
 import BBox from './glyph/BBox';
 import { asciiDecoder } from './utils';
 
+function needsCodePoints(glyph, characters) {
+  return glyph && glyph.codePoints.length === 0 && characters.length > 0;
+}
+
+function hasCodePoints(glyph, characters) {
+  return (
+    glyph.codePoints.length === characters.length &&
+    glyph.codePoints.every((c, i) => c === characters[i])
+  );
+}
+
 /**
  * This is the base class for all SFNT-based font formats in fontkit.
  * It supports TrueType, and PostScript glyphs, and several color glyph formats.
  */
-export default class TTFFont {
+export class TTFFont {
   type = 'TTF';
 
   static probe(buffer) {
     let format = asciiDecoder.decode(buffer.slice(0, 4));
-    return format === 'true' || format === 'OTTO' || format === String.fromCharCode(0, 1, 0, 0);
+    return (
+      format === 'true' ||
+      format === 'OTTO' ||
+      format === String.fromCharCode(0, 1, 0, 0)
+    );
   }
 
   constructor(stream, variationCoords = null) {
@@ -35,6 +50,7 @@ export default class TTFFont {
     this._directoryPos = this.stream.pos;
     this._tables = {};
     this._glyphs = {};
+    this._glyphsByCharacters = {};
     this._decodeDirectory();
 
     // define properties for each table to lazily parse
@@ -42,7 +58,7 @@ export default class TTFFont {
       let table = this.directory.tables[tag];
       if (tables[tag] && table.length > 0) {
         Object.defineProperty(this, tag, {
-          get: this._getTable.bind(this, table)
+          get: this._getTable.bind(this, table),
         });
       }
     }
@@ -57,7 +73,7 @@ export default class TTFFont {
       try {
         this._tables[table.tag] = this._decodeTable(table);
       } catch (e) {
-        if (fontkit.logErrors) {
+        if (logErrors) {
           console.error(`Error decoding table ${table.tag}`);
           console.error(e.stack);
         }
@@ -78,7 +94,9 @@ export default class TTFFont {
   }
 
   _decodeDirectory() {
-    return this.directory = Directory.decode(this.stream, {_startOffset: 0});
+    return (this.directory = Directory.decode(this.stream, {
+      _startOffset: 0,
+    }));
   }
 
   _decodeTable(table) {
@@ -91,22 +109,35 @@ export default class TTFFont {
     return result;
   }
 
+  _getMetrics() {
+    // Like HarfBuzz, use the typo metrics only when the font asks for them
+    let { 'OS/2': os2, hhea } = this;
+    let { ascent, descent, lineGap } = os2?.fsSelection.useTypoMetrics
+      ? {
+          ascent: os2.typoAscender,
+          descent: os2.typoDescender,
+          lineGap: os2.typoLineGap,
+        }
+      : hhea;
+    return { ascent: Math.abs(ascent), descent: -Math.abs(descent), lineGap };
+  }
+
   /**
    * Gets a string from the font's `name` table
    * `lang` is a BCP-47 language code.
    * @return {string}
    */
-  getName(key, lang = this.defaultLanguage || fontkit.defaultLanguage) {
+  getName(key, lang = this.defaultLanguage || defaultLanguage) {
     let record = this.name && this.name.records[key];
     if (record) {
       // Attempt to retrieve the entry, depending on which translation is available:
       return (
-          record[lang]
-          || record[this.defaultLanguage]
-          || record[fontkit.defaultLanguage]
-          || record['en']
-          || record[Object.keys(record)[0]] // Seriously, ANY language would be fine
-          || null
+        record[lang] ||
+        record[this.defaultLanguage] ||
+        record[defaultLanguage] ||
+        record['en'] ||
+        record[Object.keys(record)[0]] || // Seriously, ANY language would be fine
+        null
       );
     }
 
@@ -166,7 +197,7 @@ export default class TTFFont {
    * @type {number}
    */
   get ascent() {
-    return this.hhea.ascent;
+    return this._getMetrics().ascent;
   }
 
   /**
@@ -174,7 +205,7 @@ export default class TTFFont {
    * @type {number}
    */
   get descent() {
-    return this.hhea.descent;
+    return this._getMetrics().descent;
   }
 
   /**
@@ -182,7 +213,7 @@ export default class TTFFont {
    * @type {number}
    */
   get lineGap() {
-    return this.hhea.lineGap;
+    return this._getMetrics().lineGap;
   }
 
   /**
@@ -249,12 +280,12 @@ export default class TTFFont {
    * The font’s bounding box, i.e. the box that encloses all glyphs in the font.
    * @type {BBox}
    */
-  @cache
   get bbox() {
-    return Object.freeze(new BBox(this.head.xMin, this.head.yMin, this.head.xMax, this.head.yMax));
+    return Object.freeze(
+      new BBox(this.head.xMin, this.head.yMin, this.head.xMax, this.head.yMax),
+    );
   }
 
-  @cache
   get _cmapProcessor() {
     return new CmapProcessor(this.cmap);
   }
@@ -263,7 +294,6 @@ export default class TTFFont {
    * An array of all of the unicode code points supported by the font.
    * @type {number[]}
    */
-  @cache
   get characterSet() {
     return this._cmapProcessor.getCharacterSet();
   }
@@ -321,14 +351,20 @@ export default class TTFFont {
         }
 
         // Compute the next state: 1 if the next codepoint is a variation selector, 0 otherwise.
-        nextState = ((0xfe00 <= code && code <= 0xfe0f) || (0xe0100 <= code && code <= 0xe01ef)) ? 1 : 0;
+        nextState =
+          (0xfe00 <= code && code <= 0xfe0f) ||
+          (0xe0100 <= code && code <= 0xe01ef)
+            ? 1
+            : 0;
       } else {
         idx++;
       }
 
       if (state === 0 && nextState === 1) {
         // Variation selector following normal codepoint.
-        glyphs.push(this.getGlyph(this._cmapProcessor.lookup(last, code), [last, code]));
+        glyphs.push(
+          this.getGlyph(this._cmapProcessor.lookup(last, code), [last, code]),
+        );
       } else if (state === 0 && nextState === 0) {
         // Normal codepoint following normal codepoint.
         glyphs.push(this.glyphForCodePoint(last));
@@ -341,7 +377,6 @@ export default class TTFFont {
     return glyphs;
   }
 
-  @cache
   get _layoutEngine() {
     return new LayoutEngine(this);
   }
@@ -357,7 +392,13 @@ export default class TTFFont {
    * @return {GlyphRun}
    */
   layout(string, userFeatures, script, language, direction) {
-    return this._layoutEngine.layout(string, userFeatures, script, language, direction);
+    return this._layoutEngine.layout(
+      string,
+      userFeatures,
+      script,
+      language,
+      direction,
+    );
   }
 
   /**
@@ -388,7 +429,6 @@ export default class TTFFont {
     if (!this._glyphs[glyph]) {
       if (this.directory.tables.glyf) {
         this._glyphs[glyph] = new TTFGlyph(glyph, characters, this);
-
       } else if (this.directory.tables['CFF '] || this.directory.tables.CFF2) {
         this._glyphs[glyph] = new CFFGlyph(glyph, characters, this);
       }
@@ -407,19 +447,42 @@ export default class TTFFont {
    * @return {Glyph}
    */
   getGlyph(glyph, characters = []) {
+    // Composite decomposition can cache a component before its code points are known.
+    if (needsCodePoints(this._glyphs[glyph], characters)) {
+      delete this._glyphs[glyph];
+    }
+
     if (!this._glyphs[glyph]) {
       if (this.directory.tables.sbix) {
         this._glyphs[glyph] = new SBIXGlyph(glyph, characters, this);
-
-      } else if ((this.directory.tables.COLR) && (this.directory.tables.CPAL)) {
+      } else if (this.directory.tables.COLR && this.directory.tables.CPAL) {
         this._glyphs[glyph] = new COLRGlyph(glyph, characters, this);
-
       } else {
         this._getBaseGlyph(glyph, characters);
       }
     }
 
-    return this._glyphs[glyph] || null;
+    let cached = this._glyphs[glyph] || null;
+
+    // Glyphs shared by several code points (e.g. space and no-break space) are cached with the first caller's.
+    if (cached && characters.length > 0 && !hasCodePoints(cached, characters)) {
+      return this._getGlyphForCharacters(cached, characters);
+    }
+
+    return cached;
+  }
+
+  _getGlyphForCharacters(base, characters) {
+    let key = base.id + ':' + characters.join(',');
+    if (!this._glyphsByCharacters[key]) {
+      this._glyphsByCharacters[key] = new base.constructor(
+        base.id,
+        characters,
+        this,
+      );
+    }
+
+    return this._glyphsByCharacters[key];
   }
 
   /**
@@ -441,7 +504,6 @@ export default class TTFFont {
    *
    * @type {object}
    */
-  @cache
   get variationAxes() {
     let res = {};
     if (!this.fvar) {
@@ -453,7 +515,7 @@ export default class TTFFont {
         name: axis.name.en,
         min: axis.minValue,
         default: axis.defaultValue,
-        max: axis.maxValue
+        max: axis.maxValue,
       };
     }
 
@@ -467,7 +529,6 @@ export default class TTFFont {
    *
    * @type {object}
    */
-  @cache
   get namedVariations() {
     let res = {};
     if (!this.fvar) {
@@ -496,8 +557,14 @@ export default class TTFFont {
    * @return {TTFFont}
    */
   getVariation(settings) {
-    if (!(this.directory.tables.fvar && ((this.directory.tables.gvar && this.directory.tables.glyf) || this.directory.tables.CFF2))) {
-      throw new Error('Variations require a font with the fvar, gvar and glyf, or CFF2 tables.');
+    if (!(
+      this.directory.tables.fvar &&
+      ((this.directory.tables.gvar && this.directory.tables.glyf) ||
+        this.directory.tables.CFF2)
+    )) {
+      throw new Error(
+        'Variations require a font with the fvar, gvar and glyf, or CFF2 tables.',
+      );
     }
 
     if (typeof settings === 'string') {
@@ -505,14 +572,19 @@ export default class TTFFont {
     }
 
     if (typeof settings !== 'object') {
-      throw new Error('Variation settings must be either a variation name or settings object.');
+      throw new Error(
+        'Variation settings must be either a variation name or settings object.',
+      );
     }
 
     // normalize the coordinates
     let coords = this.fvar.axis.map((axis, i) => {
       let axisTag = axis.axisTag.trim();
       if (axisTag in settings) {
-        return Math.max(axis.minValue, Math.min(axis.maxValue, settings[axisTag]));
+        return Math.max(
+          axis.minValue,
+          Math.min(axis.maxValue, settings[axisTag]),
+        );
       } else {
         return axis.defaultValue;
       }
@@ -540,7 +612,6 @@ export default class TTFFont {
     return new this.constructor(stream, coords);
   }
 
-  @cache
   get _variationProcessor() {
     if (!this.fvar) {
       return null;
@@ -554,7 +625,7 @@ export default class TTFFont {
     }
 
     if (!variationCoords) {
-      variationCoords = this.fvar.axis.map(axis => axis.defaultValue);
+      variationCoords = this.fvar.axis.map((axis) => axis.defaultValue);
     }
 
     return new GlyphVariationProcessor(this, variationCoords);
@@ -565,3 +636,14 @@ export default class TTFFont {
     return this.getVariation(name);
   }
 }
+
+cache(TTFFont, {
+  bbox: 'once',
+  _cmapProcessor: 'once',
+  characterSet: 'once',
+  _layoutEngine: 'once',
+  variationAxes: 'once',
+  namedVariations: 'once',
+  _variationProcessor: 'once',
+  _getMetrics: 'once',
+});

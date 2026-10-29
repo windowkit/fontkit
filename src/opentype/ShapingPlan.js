@@ -17,11 +17,17 @@ export default class ShapingPlan {
     this.stages = [];
     this.globalFeatures = {};
     this.allFeatures = {};
+    // Snapshot of the user's original features object — preserved for
+    // Type 3 (Alternate Substitution) lookups that need the per-feature
+    // alternate index (1-based; e.g. `nalt: 2` selects the second
+    // alternate). Set in setFeatureOverrides.
+    this.userFeatures = null;
   }
 
   /**
    * Adds the given features to the last stage.
-   * Ignores features that have already been applied.
+   * Features that have already been added keep their stage, but become
+   * global if added globally, e.g. by user overrides.
    */
   _addFeatures(features, global) {
     let stageIndex = this.stages.length - 1;
@@ -30,10 +36,10 @@ export default class ShapingPlan {
       if (this.allFeatures[feature] == null) {
         stage.push(feature);
         this.allFeatures[feature] = stageIndex;
+      }
 
-        if (global) {
-          this.globalFeatures[feature] = true;
-        }
+      if (global) {
+        this.globalFeatures[feature] = true;
       }
     }
   }
@@ -56,7 +62,7 @@ export default class ShapingPlan {
       this._addFeatures(arg.global || [], true);
       this._addFeatures(arg.local || [], false);
     } else {
-      throw new Error("Unsupported argument to ShapingPlan#add");
+      throw new Error('Unsupported argument to ShapingPlan#add');
     }
   }
 
@@ -72,22 +78,14 @@ export default class ShapingPlan {
     }
   }
 
-  /**
-   * Applies the features the user asked for, or turned off.
-   * A feature the user asks for applies to every glyph, as HarfBuzz applies
-   * a feature asked for over the whole run: one the shaper planned for some
-   * glyphs only, like numr and dnom around a fraction slash, is made global,
-   * in the stage the shaper planned it in.
-   */
   setFeatureOverrides(features) {
     if (Array.isArray(features)) {
-      for (let tag of features) {
-        this._addGlobal(tag);
-      }
+      this.add(features);
     } else if (typeof features === 'object') {
+      this.userFeatures = features;
       for (let tag in features) {
         if (features[tag]) {
-          this._addGlobal(tag);
+          this.add(tag);
         } else if (this.allFeatures[tag] != null) {
           let stage = this.stages[this.allFeatures[tag]];
           stage.splice(stage.indexOf(tag), 1);
@@ -96,11 +94,6 @@ export default class ShapingPlan {
         }
       }
     }
-  }
-
-  _addGlobal(tag) {
-    this.add(tag);
-    this.globalFeatures[tag] = true;
   }
 
   /**
@@ -123,9 +116,8 @@ export default class ShapingPlan {
         if (!positions) {
           stage(this.font, glyphs, this);
         }
-
       } else if (stage.length > 0) {
-        processor.applyFeatures(stage, glyphs, positions);
+        processor.applyFeatures(stage, glyphs, positions, this.userFeatures);
       }
     }
   }

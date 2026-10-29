@@ -2,9 +2,17 @@ import OTProcessor from './OTProcessor';
 import GlyphInfo from './GlyphInfo';
 
 export default class GSUBProcessor extends OTProcessor {
+  // Reverse Chaining Contextual Single Substitution is applied right-to-left,
+  // so substitutions never feed back into the lookahead context of an
+  // earlier-in-text glyph
+  isReverseLookup(lookup) {
+    return lookup.lookupType === 8;
+  }
+
   applyLookup(lookupType, table) {
     switch (lookupType) {
-      case 1: { // Single Substitution
+      case 1: {
+        // Single Substitution
         let index = this.coverageIndex(table.coverage);
         if (index === -1) {
           return false;
@@ -24,7 +32,8 @@ export default class GSUBProcessor extends OTProcessor {
         return true;
       }
 
-      case 2: { // Multiple Substitution
+      case 2: {
+        // Multiple Substitution
         let index = this.coverageIndex(table.coverage);
         if (index !== -1) {
           let sequence = table.sequences.get(index);
@@ -33,6 +42,9 @@ export default class GSUBProcessor extends OTProcessor {
             // If the sequence length is zero, delete the glyph.
             // The OpenType spec disallows this, but seems like Harfbuzz and Uniscribe allow it.
             this.glyphs.splice(this.glyphIterator.index, 1);
+
+            // Continue with the glyph that followed the deleted one
+            this.glyphIterator.index--;
             return true;
           }
 
@@ -52,24 +64,38 @@ export default class GSUBProcessor extends OTProcessor {
           });
 
           this.glyphs.splice(this.glyphIterator.index + 1, 0, ...replacement);
+
+          // Continue after the inserted glyphs, so this lookup is not applied to its own output
+          this.glyphIterator.index += replacement.length;
           return true;
         }
 
         return false;
       }
 
-      case 3: { // Alternate Substitution
+      case 3: {
+        // Alternate Substitution
         let index = this.coverageIndex(table.coverage);
         if (index !== -1) {
-          let USER_INDEX = 0; // TODO
-          this.glyphIterator.cur.id = table.alternateSet.get(index)[USER_INDEX];
+          // Honour the user's 1-based alternate index for the current feature
+          // (e.g. `nalt: 2` selects the second alternate). Fall back to the
+          // first alternate when no value was given or the value isn't a
+          // positive integer.
+          let alt = this.userFeatures && this.userFeatures[this.currentFeature];
+          let userIndex = Number.isInteger(alt) && alt > 0 ? alt - 1 : 0;
+          let alternates = table.alternateSet.get(index);
+          if (userIndex >= alternates.length) {
+            userIndex = 0;
+          }
+          this.glyphIterator.cur.id = alternates[userIndex];
           return true;
         }
 
         return false;
       }
 
-      case 4: { // Ligature Substitution
+      case 4: {
+        // Ligature Substitution
         let index = this.coverageIndex(table.coverage);
         if (index === -1) {
           return false;
@@ -90,7 +116,12 @@ export default class GSUBProcessor extends OTProcessor {
           }
 
           // Create the replacement ligature glyph
-          let ligatureGlyph = new GlyphInfo(this.font, ligature.glyph, characters, curGlyph.features);
+          let ligatureGlyph = new GlyphInfo(
+            this.font,
+            ligature.glyph,
+            characters,
+            curGlyph.features,
+          );
           ligatureGlyph.shaperInfo = curGlyph.shaperInfo;
           ligatureGlyph.isLigated = true;
           ligatureGlyph.substituted = true;
@@ -139,7 +170,13 @@ export default class GSUBProcessor extends OTProcessor {
               idx = matchIndex;
             } else {
               while (idx < matchIndex) {
-                var ligatureComponent = curComps - lastNumComps + Math.min(this.glyphs[idx].ligatureComponent || 1, lastNumComps);
+                var ligatureComponent =
+                  curComps -
+                  lastNumComps +
+                  Math.min(
+                    this.glyphs[idx].ligatureComponent || 1,
+                    lastNumComps,
+                  );
                 this.glyphs[idx].ligatureID = ligatureGlyph.ligatureID;
                 this.glyphs[idx].ligatureComponent = ligatureComponent;
                 idx++;
@@ -156,7 +193,10 @@ export default class GSUBProcessor extends OTProcessor {
           if (lastLigID && !isMarkLigature) {
             for (let i = idx; i < this.glyphs.length; i++) {
               if (this.glyphs[i].ligatureID === lastLigID) {
-                var ligatureComponent = curComps - lastNumComps + Math.min(this.glyphs[i].ligatureComponent || 1, lastNumComps);
+                var ligatureComponent =
+                  curComps -
+                  lastNumComps +
+                  Math.min(this.glyphs[i].ligatureComponent || 1, lastNumComps);
                 this.glyphs[i].ligatureComponent = ligatureComponent;
               } else {
                 break;
@@ -184,6 +224,31 @@ export default class GSUBProcessor extends OTProcessor {
 
       case 7: // Extension Substitution
         return this.applyLookup(table.lookupType, table.extension);
+
+      case 8: {
+        // Reverse Chaining Contextual Single Substitution
+        let index = this.coverageIndex(table.coverage);
+        if (index === -1) {
+          return false;
+        }
+
+        // Backtrack/lookahead contexts are checked against the current
+        // glyph in the buffer. The iteration order in applyLookups is
+        // reversed for Type 8 so lookahead always sees post-substitution
+        // glyphs (per OpenType spec) and backtrack sees pre-substitution.
+        if (
+          this.coverageSequenceMatches(
+            -table.backtrackGlyphCount,
+            table.backtrackCoverage,
+          ) &&
+          this.coverageSequenceMatches(1, table.lookaheadCoverage)
+        ) {
+          this.glyphIterator.cur.id = table.substitute.get(index);
+          return true;
+        }
+
+        return false;
+      }
 
       default:
         throw new Error(`GSUB lookupType ${lookupType} is not supported`);
